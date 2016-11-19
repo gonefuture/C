@@ -1,0 +1,590 @@
+C51 COMPILER V9.01   瞋距程序                                                              08/16/2016 17:27:34 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE 瞋距程序
+OBJECT MODULE PLACED IN 测距程序.OBJ
+COMPILER INVOKED BY: E:\C51\BIN\C51.EXE 测距程序.C BROWSE DEBUG OBJECTEXTEND
+
+line level    source
+
+   1          /******************************************************************************/
+   2          /*  Name:  LCD12864(St7920/St7921)+超声波测距模块+STC89C52                    */
+   3          /*  HC-SR04 超声波测距模块 DEMO 程序                                                                          */
+   4          /*  晶振：11.0592M                                                            */
+   5          /*  接线：模块TRIG接 P1.2  ECH0 接P1.1                                                                            */
+   6          /*      RS(CS)    接  P3.3;                                                                                                   */           
+   7          /*      RW(SID)   接  P3.4;                                                                                           */
+   8          /*      E(SCLK)   接  P3.5;                                                                                               */
+   9          /*      PSB       接  GND 串行模式                                                                                    */
+  10          /******************************************************************************/
+  11              #include   <AT89X51.H>
+  12                  #include   <intrins.h>  
+  13          //引脚定义
+  14              sbit     RX    =  P1 ^ 1;
+  15              sbit     TX    =  P1 ^ 2;
+  16              sbit     CS    =  P3 ^ 3;   //片选 高电平有效 单片LCD使用时可固定高电平
+  17              sbit     SID   =  P3 ^ 4;   //数据
+  18              sbit     SCLK  =  P3 ^ 5;   //时钟
+  19          /*--------------------------------------*/
+  20          unsigned char data CLOCK[4]={0,0,0,0};
+  21          unsigned int temp;  
+  22          sbit DQ = P1^3;
+  23          
+  24          
+  25          //Function Definition　函数声明 
+  26          void Delay(int num);
+  27          void Init_DS18B20(void);
+  28          unsigned char ReadOneChar(void);
+  29          void WriteOneChar(unsigned char dat);
+  30          unsigned int ReadTemperature(void);
+  31          void clock_out(unsigned char dd);
+  32          unsigned char clock_in(void);
+  33          unsigned char read_clock(unsigned char ord);
+  34          void write_clock(unsigned char ord, unsigned char dd);
+  35          void Disp(void);
+  36          void id_case1_key(void);
+  37          void id_case2_key(void);
+  38          void Set_time(unsigned char sel,bit sel_1);
+  39          void Timer0_Init(void);
+  40          void Init_1302(void);
+  41          void Set_Bell(unsigned char sel, bit sel_1);
+  42          void Bell(void);
+  43          //12864
+  44          void Write_char(bit start, unsigned char ddata);
+  45          void Send_byte(unsigned char bbyte);
+  46          void Delaynms(unsigned int di);
+  47          void Lcd_init(void);
+  48          void Disp_img(unsigned char *img);
+  49          void LCD_Write_string(unsigned char X,unsigned char Y,unsigned char *s);
+  50          void LCD_set_xy( unsigned char x, unsigned char y );
+  51          unsigned char code num[]={"0123456789 :.-;"};
+  52          unsigned char code waves[]={"Time:"};
+  53          unsigned char code znwk[] ={"保护您的眼睛"};
+  54          unsigned char code CM[] =  {"距离:          M"};
+  55          unsigned char code wendu[] ={""};
+C51 COMPILER V9.01   瞋距程序                                                              08/16/2016 17:27:34 PAGE 2   
+
+  56          
+  57          sbit pe=P2^1;
+  58          sbit pl=P2^2;
+  59          sbit alarm = P2^3; 
+  60          //sbit L2=P3^7;
+  61          sbit L1=P3^6;
+  62          unsigned int  time=0;
+  63                   long S=0;
+  64                   bit  flag =0;
+  65          unsigned char disbuff[4]           ={ 0,0,0,0,};
+  66          unsigned char code logo[]={  
+  67          /*--  调入了一幅图像：logo.bmp  -- */ 
+  68          /*--  宽度x高度=128x64 欢迎使用本产品LOGO --*/
+  69          /*--  调入了一幅图像：C:\Documents and Settings\lwd\桌面\新建文件夹\X.bmp  --*/
+  70          /*--  宽度x高度=128x64  --*/
+  71          0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+  72          0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+  73          0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+  74          0x00,0x00,0x00,0xC0,0x00,0x00,0x00,0x00,0x00,0x00,0x60,0x00,0x00,0x00,0x00,0x00,
+  75          0x00,0x00,0x00,0xE0,0x00,0x00,0x0C,0x00,0x00,0x40,0x70,0x00,0x00,0x00,0x80,0x00,
+  76          0x00,0x00,0x00,0xE0,0x00,0x00,0x1E,0x00,0x00,0x60,0x70,0x00,0x00,0x0F,0xE0,0x00,
+  77          0x00,0x00,0x01,0xC0,0x00,0x60,0x3C,0x00,0x00,0xE0,0x60,0x00,0x1F,0xFF,0xE0,0x00,
+  78          0x00,0x00,0x03,0x80,0x00,0x70,0x70,0x40,0x00,0xE0,0x7E,0x00,0x1F,0xE0,0xC0,0x00,
+  79          0x00,0x00,0x03,0x00,0x00,0x73,0xC3,0xF0,0x01,0xC3,0xFC,0x00,0x38,0xE1,0xC0,0x00,
+  80          0x00,0x03,0xC6,0x3C,0x00,0x33,0x9F,0xF0,0x03,0x8F,0xC0,0x00,0x30,0xC1,0xC0,0x00,
+  81          0x00,0x3F,0xEF,0xFE,0x00,0x03,0x1C,0xE0,0x07,0x01,0xCC,0x00,0x31,0xF1,0x80,0x00,
+  82          0x00,0x79,0xDF,0xBC,0x00,0x06,0x18,0xC0,0x0E,0x01,0xFE,0x00,0x77,0xF9,0x80,0x00,
+  83          0x00,0x01,0xB0,0x30,0x01,0xC6,0x19,0xC0,0x1E,0x7F,0xDE,0x00,0x6F,0x83,0x80,0x00,
+  84          0x00,0x23,0xAC,0x60,0x0F,0xE6,0xF1,0x80,0x3E,0x7B,0x38,0x00,0x61,0x83,0x00,0x00,
+  85          
+  86          0x00,0x37,0x0E,0x00,0x0F,0xC7,0xB7,0x80,0xEC,0x63,0x30,0x00,0xE3,0x03,0x00,0x00,
+  87          0x00,0x3E,0x0E,0x00,0x01,0x8F,0x37,0x01,0xCC,0x6F,0xF0,0x00,0xC7,0xF7,0x00,0x00,
+  88          0x00,0x1E,0x0C,0x00,0x03,0x1E,0x66,0x03,0x0C,0x7F,0x00,0x01,0xFF,0xE6,0x00,0x00,
+  89          0x00,0x1E,0x1C,0x00,0x03,0x1C,0x60,0x02,0x19,0xAC,0x00,0x01,0x96,0x06,0x00,0x00,
+  90          0x00,0x3E,0x3E,0x00,0x03,0x18,0x60,0x00,0x19,0xFC,0x00,0x03,0x86,0x0E,0x00,0x00,
+  91          0x00,0x7E,0x36,0x00,0x03,0x00,0xC0,0x00,0x38,0x78,0x00,0x03,0x06,0x0C,0x00,0x00,
+  92          0x00,0xE6,0x67,0x00,0x03,0x00,0xC0,0x00,0x30,0x78,0x00,0x06,0x0C,0x0C,0x00,0x00,
+  93          0x01,0xC6,0xC3,0x80,0x7F,0xF0,0xC0,0x00,0x30,0xFE,0x00,0x0E,0x0C,0x1C,0x00,0x00,
+  94          0x03,0x81,0x83,0xC0,0x78,0xFF,0x80,0x00,0x61,0xCF,0x80,0x1C,0x08,0x18,0x00,0x00,
+  95          0x06,0x07,0x03,0xE0,0x00,0x1F,0xFF,0xE0,0x67,0x07,0xE0,0x38,0x18,0xF8,0x00,0x00,
+  96          0x08,0x0E,0x01,0xF8,0x00,0x07,0xFF,0x80,0xCE,0x03,0xF8,0x60,0x00,0x70,0x00,0x00,
+  97          0x00,0x18,0x01,0xF8,0x00,0x01,0xFC,0x00,0xC0,0x01,0xFC,0xC0,0x00,0x70,0x00,0x00,
+  98          0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x60,0x00,0x00,
+  99          0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+ 100          0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+ 101          0x00,0x00,0x00,0x00,0x00,0x00,0x10,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+ 102          0x00,0x00,0x06,0x00,0x00,0x00,0x1C,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+ 103          0x00,0x00,0x07,0x00,0x00,0x00,0x1C,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+ 104          0x00,0x00,0x06,0x00,0x00,0x00,0x0C,0xE0,0x00,0x01,0xE0,0x00,0x00,0x00,0x00,0x00,
+ 105          0x00,0x00,0x0E,0x00,0x00,0x00,0x3F,0xE0,0x00,0xFF,0xF0,0x00,0x38,0x00,0xE0,0x00,
+ 106          0x00,0x00,0x0C,0x00,0x00,0x0F,0xFF,0x80,0x00,0xF8,0xF0,0x00,0x38,0x00,0xE0,0x00,
+ 107          0x00,0x00,0x0C,0xF0,0x00,0x0F,0xC7,0x00,0x00,0x60,0xE0,0x00,0x38,0x00,0xE0,0x00,
+ 108          0x00,0x00,0x1F,0xF0,0x00,0x01,0x8E,0x00,0x00,0x60,0xC0,0x00,0x70,0x01,0xC0,0x00,
+ 109          0x00,0x07,0xFF,0x80,0x00,0x01,0x8C,0x00,0x00,0xE1,0x80,0x00,0x70,0x01,0xC0,0x00,
+ 110          0x00,0x07,0xF8,0x00,0x00,0x01,0x98,0x00,0x00,0xDF,0xC0,0x00,0x70,0x01,0xC0,0x00,
+ 111          0x00,0x00,0x78,0x00,0x00,0x01,0xBF,0xE0,0x00,0xFF,0x00,0x00,0x60,0x01,0x80,0x00,
+ 112          0x00,0x00,0xFC,0x00,0x00,0x7F,0xFF,0xE0,0x00,0xC0,0x00,0x00,0xE0,0x03,0x80,0x00,
+ 113          0x00,0x01,0xFE,0x00,0x00,0x7F,0xF8,0x00,0x00,0x00,0x00,0x00,0xC0,0x03,0x00,0x00,
+ 114          0x00,0x03,0xB7,0x00,0x00,0x60,0x00,0x00,0x00,0x00,0x3C,0x00,0xC0,0x03,0x00,0x00,
+ 115          0x00,0x07,0x67,0x00,0x00,0x60,0x00,0x00,0x03,0x9F,0xFE,0x00,0x80,0x02,0x00,0x00,
+ 116          0x00,0x0E,0x63,0x80,0x00,0xE0,0x00,0x01,0xFF,0xCF,0x1E,0x01,0x80,0x06,0x00,0x00,
+ 117          0x00,0x1C,0xE1,0xE0,0x00,0xC0,0x00,0x00,0xE3,0x9C,0x38,0x01,0x80,0x06,0x00,0x00,
+C51 COMPILER V9.01   瞋距程序                                                              08/16/2016 17:27:34 PAGE 3   
+
+ 118          0x00,0x38,0xC1,0xF8,0x01,0xC0,0x00,0x00,0xC3,0x18,0x30,0x00,0x00,0x00,0x00,0x00,
+ 119          0x00,0xE0,0xFC,0xFE,0x03,0x80,0x00,0x01,0xC7,0x18,0x60,0x00,0x00,0x00,0x00,0x00,
+ 120          0x01,0xDF,0xF8,0xFE,0x03,0x00,0x00,0x01,0x8E,0x1B,0xE0,0x07,0x00,0x1C,0x00,0x00,
+ 121          0x07,0x07,0x80,0x00,0x07,0x00,0x00,0x01,0xFF,0x3F,0xE0,0x07,0x00,0x1C,0x00,0x00,
+ 122          0x0C,0x03,0x80,0x00,0x0E,0x00,0x00,0x01,0xF0,0x38,0x00,0x0F,0x00,0x3C,0x00,0x00,
+ 123          0x00,0x03,0x00,0x00,0x1C,0x00,0x00,0x01,0x00,0x20,0x00,0x06,0x00,0x18,0x00,0x00,
+ 124          0x00,0x03,0x00,0x00,0x38,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+ 125          0x00,0x03,0x00,0x00,0xE0,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+ 126          0x00,0x02,0x00,0x01,0xC0,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+ 127          0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+ 128          0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+ 129          0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+ 130          0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+ 131          0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+ 132          0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+ 133          0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+ 134          0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+ 135          0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+ 136          };
+ 137          
+ 138          /******************************************************************************/
+ 139          void Lcd_init(void)     //初始化LCD 
+ 140          {
+ 141   1              Delaynms(10); //启动等待，等LCM讲入工作状态
+ 142   1              CS=1;
+ 143   1              Write_char(0,0x30);  //8 位介面，基本指令集
+ 144   1              Write_char(0,0x0c);  //显示打开，光标关，反白关
+ 145   1              Write_char(0,0x01);  //清屏，将DDRAM的地址计数器归零  
+ 146   1      }
+ 147          
+ 148          /******************************************************************************/
+ 149          void Write_char(bit start, unsigned char ddata) //写指令或数据
+ 150          {
+ 151   1              unsigned char start_data,Hdata,Ldata;
+ 152   1              if(start==0) 
+ 153   1                      start_data=0xf8;         //写指令
+ 154   1          else    
+ 155   1              start_data=0xfa;  //写数据
+ 156   1        
+ 157   1              Hdata=ddata&0xf0;                 //取高四位
+ 158   1              Ldata=(ddata<<4)&0xf0;  //取低四位
+ 159   1              Send_byte(start_data);    //发送起始信号
+ 160   1              Delaynms(5); //延时是必须的
+ 161   1              Send_byte(Hdata);             //发送高四位
+ 162   1              Delaynms(1);  //延时是必须的
+ 163   1              Send_byte(Ldata);                 //发送低四位
+ 164   1              Delaynms(1);  //延时是必须的
+ 165   1      }
+ 166          
+ 167          /******************************************************************************/
+ 168          void Send_byte(unsigned char bbyte) //发送一个字节
+ 169          {
+ 170   1              unsigned char i;
+ 171   1              for(i=0;i<8;i++)
+ 172   1              {
+ 173   2                      SID=bbyte&0x80; //取出最高位
+ 174   2                      SCLK=1;
+ 175   2                      SCLK=0;
+ 176   2                      bbyte<<=1; //左移
+ 177   2              }  
+ 178   1      }
+ 179          
+C51 COMPILER V9.01   瞋距程序                                                              08/16/2016 17:27:34 PAGE 4   
+
+ 180          /******************************************************************************/
+ 181          void Delaynms(unsigned int di) //延时
+ 182          {
+ 183   1              unsigned int da,db;
+ 184   1              for(da=0;da<di;da++)
+ 185   1                      for(db=0;db<10;db++);
+ 186   1      }
+ 187          
+ 188          /******************************************************************************/
+ 189          void Disp_img(unsigned char  *img)      //图形方式12864显示字模221 横向取膜
+ 190          { 
+ 191   1              unsigned char i,j;
+ 192   1              unsigned int k = 0;
+ 193   1      
+ 194   1              Write_char(0,0x36); //图形方式
+ 195   1              for(i=0;i<32;i++)
+ 196   1              { 
+ 197   2                      Write_char(0,0x80+i);
+ 198   2                      Write_char(0,0x80);
+ 199   2              for(j=0;j<16;j++) 
+ 200   2                      {
+ 201   3                              Write_char(1,img[k++]);
+ 202   3                      }
+ 203   2              }
+ 204   1      
+ 205   1              for(i=0;i<32;i++)
+ 206   1              { 
+ 207   2                      Write_char(0,0x80+i);
+ 208   2                      Write_char(0,0x88);
+ 209   2              for(j=0;j<16;j++) 
+ 210   2                      {
+ 211   3                              Write_char(1,img[k++]);
+ 212   3                      }
+ 213   2              }
+ 214   1      }
+ 215                  
+ 216          /******************************************************************************/
+ 217          void Clr_Scr(void)//清屏函数
+ 218          {
+ 219   1              Write_char(0,0x01);
+ 220   1      }
+ 221          
+ 222          /******************************************************************************/
+ 223          void LCD_set_xy( unsigned char x, unsigned char y )
+ 224          {       //设置LCD显示的起始位置，X为行，Y为列
+ 225   1          unsigned char address;
+ 226   1              switch(x)
+ 227   1              {
+ 228   2                      case 0: address = 0x80 + y; break;    
+ 229   2              case 1: address = 0x80 + y; break; 
+ 230   2                      case 2: address = 0x90 + y; break; 
+ 231   2                      case 3: address = 0x88 + y; break;
+ 232   2                      case 4: address = 0x98 + y; break; 
+ 233   2                      default:address = 0x80 + y; break;
+ 234   2              }
+ 235   1          Write_char(0, address);
+ 236   1      }
+ 237          
+ 238          /******************************************************************************/
+ 239          void LCD_Write_string(unsigned char X,unsigned char Y,unsigned char *s)
+ 240          {       //      中英文字符串显示函数
+ 241   1              LCD_set_xy( X, Y );
+C51 COMPILER V9.01   瞋距程序                                                              08/16/2016 17:27:34 PAGE 5   
+
+ 242   1          
+ 243   1          while (*s) 
+ 244   1          {
+ 245   2                      Write_char( 1, *s );
+ 246   2                  s ++;
+ 247   2                      Delaynms(1);
+ 248   2              }
+ 249   1      }
+ 250          
+ 251          /******************************************************************************/
+ 252          void LCD_Write_number(unsigned char s)//        数字显示函数
+ 253          {       
+ 254   1              Write_char(1,num[s]);
+ 255   1              Delaynms(1);
+ 256   1      }
+ 257          /******************************************************************************/
+ 258          void Lcd_Mark2(void)
+ 259          {
+ 260   1              Clr_Scr();//清屏
+ 261   1              LCD_Write_string(1,1,znwk);//
+ 262   1              LCD_Write_string(2,0,waves);//  
+ 263   1              LCD_Write_string(3,0,CM);//
+ 264   1              LCD_Write_string(4,0,wendu);
+ 265   1      
+ 266   1                      
+ 267   1      }
+ 268          
+ 269          
+ 270          /********************************************************/
+ 271              void Conut(void)
+ 272                  {
+ 273   1                 time=TH0*256+TL0;
+ 274   1                 TH0=0;
+ 275   1                 TL0=0;
+ 276   1                 S=time*1.87/100;       //算出来是CM    11。0592M晶振
+ 277   1                 if(flag==1)                //超出测量
+ 278   1                {      
+ 279   2                 flag=0;
+ 280   2                 LCD_set_xy( 3, 4 );
+ 281   2                 LCD_Write_number(13);
+ 282   2                 LCD_Write_number(12);
+ 283   2                 LCD_set_xy( 3, 5 );
+ 284   2                 LCD_Write_number(13);
+ 285   2                 LCD_Write_number(13);
+ 286   2                
+ 287   2                 }
+ 288   1               else
+ 289   1                {
+ 290   2                 disbuff[1]=S%1000/100;
+ 291   2                 disbuff[2]=S%1000%100/10;
+ 292   2                 disbuff[3]=S%1000%10 %10;
+ 293   2                 LCD_set_xy( 3, 4 );
+ 294   2                 LCD_Write_number(disbuff[1]);
+ 295   2                 LCD_Write_number(12);
+ 296   2                 LCD_set_xy( 3, 5 );
+ 297   2                 LCD_Write_number(disbuff[2]);
+ 298   2                 LCD_Write_number(disbuff[3]);
+ 299   2                }
+ 300   1      
+ 301   1              }
+ 302          /********************************************************/ 
+ 303          void delayms(unsigned int ms)
+C51 COMPILER V9.01   瞋距程序                                                              08/16/2016 17:27:34 PAGE 6   
+
+ 304          {
+ 305   1              unsigned char i=100,j;
+ 306   1              for(;ms;ms--)
+ 307   1              {
+ 308   2                      while(--i)
+ 309   2                      {
+ 310   3                              j=10;
+ 311   3                              while(--j);
+ 312   3                      }
+ 313   2              }
+ 314   1      }
+ 315          /********************************************************/
+ 316               void zd0() interrupt 1              //T0中断用来计数器溢出,超过测距范围
+ 317            {
+ 318   1          flag=1;                                                      //中断溢出标志
+ 319   1        }
+ 320          /********************************************************/
+ 321             void  StartModule()                   //T1中断用来扫描数码管和计800MS启动模块
+ 322            {
+ 323   1                TX=1;                                  //800MS  启动一次模块
+ 324   1                _nop_(); 
+ 325   1                _nop_(); 
+ 326   1                _nop_(); 
+ 327   1                _nop_(); 
+ 328   1                _nop_(); 
+ 329   1                _nop_(); 
+ 330   1                _nop_(); 
+ 331   1                _nop_(); 
+ 332   1                _nop_(); 
+ 333   1                _nop_(); 
+ 334   1                _nop_(); 
+ 335   1                _nop_(); 
+ 336   1                _nop_(); 
+ 337   1                _nop_(); 
+ 338   1                _nop_(); 
+ 339   1                _nop_(); 
+ 340   1                _nop_();
+ 341   1                _nop_(); 
+ 342   1                _nop_(); 
+ 343   1                _nop_(); 
+ 344   1                _nop_();
+ 345   1                TX=0;
+ 346   1        }
+ 347          
+ 348          /*******************************************/
+ 349          
+ 350          /*****************DS18B20******************/
+ 351                  void Init_Ds18b20(void)     //DS18B20初始化send reset and initialization command
+ 352          {
+ 353   1              DQ = 1;                     //DQ复位,不要也可行。
+ 354   1              Delaynms(1);                  //稍做延时
+ 355   1              DQ = 0;                    //单片机拉低总线
+ 356   1              Delaynms(250);                //精确延时，维持至少480us
+ 357   1              DQ = 1;                    //释放总线，即拉高了总线
+ 358   1              Delaynms(100);                //此处延时有足够,确保能让DS18B20发出存在脉冲。
+ 359   1      }
+ 360          
+ 361                  unsigned char Read_One_Byte()       //读取一个字节的数据read a byte date
+ 362                  //读数据时,数据以字节的最低有效位先从总线移出
+ 363                  {
+ 364   1              unsigned char i   = 0;
+ 365   1              unsigned char dat = 0;
+C51 COMPILER V9.01   瞋距程序                                                              08/16/2016 17:27:34 PAGE 7   
+
+ 366   1              for(i=8;i>0;i--)
+ 367   1              {
+ 368   2              DQ = 0;                  //将总线拉低，要在1us之后释放总线
+ 369   2              //单片机要在此下降沿后的15us内读数据才会有效。
+ 370   2              _nop_();                 //至少维持了1us,表示读时序开始
+ 371   2              dat >>= 1;               //让从总线上读到的位数据，依次从高位移动到低位。
+ 372   2              DQ = 1;                  //释放总线，此后DS18B20会控制总线,把数据传输到总线上
+ 373   2              Delaynms(1);                 //延时7us,此处参照推荐的读时序图，尽量把控制器采样时间放到读时序后的15us内的
+             -最后部分
+ 374   2              if(DQ)                   //控制器进行采样
+ 375   2              {
+ 376   3              dat |= 0x80;            //若总线为1,即DQ为1,那就把dat的最高位置1;若为0,则不进行处理,保持为0
+ 377   3       }
+ 378   2              Delaynms(10);               //此延时不能少，确保读时序的长度60us。
+ 379   2              }
+ 380   1              return (dat);
+ 381   1              }
+ 382          
+ 383                  void Write_One_Byte(unsigned char dat)
+ 384                  {
+ 385   1              unsigned char i = 0;
+ 386   1              for(i=8;i>0;i--)
+ 387   1              {
+ 388   2              DQ = 0;                        //拉低总线
+ 389   2              _nop_();                       //至少维持了1us,表示写时序(包括写0时序或写1时序)开始
+ 390   2              DQ = dat&0x01;                 //从字节的最低位开始传输
+ 391   2              //指令dat的最低位赋予给总线,必须在拉低总线后的15us内,
+ 392   2              //因为15us后DS18B20会对总线采样。
+ 393   2              Delaynms(10);                     //必须让写时序持续至少60us
+ 394   2              DQ = 1;                        //写完后,必须释放总线,
+ 395   2              dat >>= 1;
+ 396   2              Delaynms(1);
+ 397   2              }
+ 398   1      }
+ 399          
+ 400                  unsigned int Get_Tmp()                   //获取温度get the temperature
+ 401                  {
+ 402   1              float tt;
+ 403   1              unsigned char a,b;
+ 404   1              Init_Ds18b20();                //初始化
+ 405   1              Write_One_Byte(0xcc);          //忽略ROM指令
+ 406   1              Write_One_Byte(0x44);          //温度转换指令
+ 407   1              Init_Ds18b20();                 //初始化
+ 408   1              Write_One_Byte(0xcc);          //忽略ROM指令
+ 409   1              Write_One_Byte(0xbe);          //读暂存器指令
+ 410   1              a = Read_One_Byte();           //读取到的第一个字节为温度LSB
+ 411   1              b = Read_One_Byte();           //读取到的第一个字节为温度MSB
+ 412   1              temp = b;                      //先把高八位有效数据赋于temp
+ 413   1              temp <<= 8;                    //把以上8位数据从temp低八位移到高八位
+ 414   1              temp = temp|a;                //两字节合成一个整型变量
+ 415   1              tt = temp*0.0625;              //得到真实十进制温度值
+ 416   1              //因为DS18B20可以精确到0.0625度
+ 417   1              //所以读回数据的最低位代表的是0.0625度
+ 418   1              temp = tt*10+0.5;               //放大十倍
+ 419   1              //这样做的目的将小数点后第一位也转换为可显示数字
+ 420   1              //同时进行一个四舍五入操作。
+ 421   1              return temp;
+ 422   1              }
+ 423          /************************************************************/
+ 424          void display(void)
+ 425          { 
+ 426   1      unsigned char un[10];
+C51 COMPILER V9.01   瞋距程序                                                              08/16/2016 17:27:34 PAGE 8   
+
+ 427   1      /* unsigned char wen[2];
+ 428   1       un[0]=CLOCK[2]/10;//小时
+ 429   1       un[1]=CLOCK[2]%10;
+ 430   1       un[2]=':';
+ 431   1       un[3]=CLOCK[1]/10;//分钟
+ 432   1       un[4]=CLOCK[1]%10;
+ 433   1       un[5]=':';
+ 434   1       un[6]=CLOCK[0]/10;//秒钟
+ 435   1       un[7]=CLOCK[0]%10;
+ 436   1      
+ 437   1       wen[0]=Get_Tmp()%100/10;
+ 438   1       wen[1]=Get_Tmp()%10; */
+ 439   1      
+ 440   1       un[0]=CLOCK[3]/10;//小时
+ 441   1       un[1]=CLOCK[3]%10;
+ 442   1       un[2]=' ';
+ 443   1       un[3]=CLOCK[2]/10;//分钟
+ 444   1       un[4]=CLOCK[2]%10;
+ 445   1       un[5]=' ';
+ 446   1       un[6]=CLOCK[1]/10;//秒钟
+ 447   1       un[7]=CLOCK[1]%10;
+ 448   1       //un[8]=CLOCK[0]/10;//百分秒
+ 449   1      // un[9]=CLOCK[0]%10;
+ 450   1         
+ 451   1                 LCD_set_xy( 2,3  );
+ 452   1                 LCD_Write_number(un[0]);
+ 453   1                 LCD_Write_number(un[1]);
+ 454   1                 LCD_Write_number(12);
+ 455   1                 LCD_Write_number(un[3]);
+ 456   1                 LCD_Write_number(un[4]);
+ 457   1                 LCD_Write_number(12);
+ 458   1                 LCD_Write_number(un[6]);     
+ 459   1                 LCD_Write_number(un[7]);
+ 460   1                // LCD_set_xy( 4,5);
+ 461   1                // LCD_Write_number(wen[0]);  
+ 462   1                 //LCD_Write_number(wen[1]);
+ 463   1                // LCD_Write_string(1,0,znwk);
+ 464   1      }
+ 465          /******/
+ 466          void timer1(void) interrupt 3
+ 467           
+ 468          {
+ 469   1       TH1=(65536-50000)/256;TL1=(65536-50000)%256;//重装初值
+ 470   1       CLOCK[0]=CLOCK[0]+1;
+ 471   1       if(CLOCK[0]==20)
+ 472   1       {
+ 473   2        CLOCK[0]=0;
+ 474   2        CLOCK[1]+=1;
+ 475   2        if(CLOCK[1]==60)
+ 476   2        {
+ 477   3         CLOCK[1]=0;
+ 478   3         CLOCK[2]+=1;
+ 479   3         if(CLOCK[2]==60)
+ 480   3         {
+ 481   4          CLOCK[2]=0;
+ 482   4          CLOCK[3]+=1;
+ 483   4          if(CLOCK[3]==24)
+ 484   4          {CLOCK[3]=0;}
+ 485   4         }
+ 486   3        }
+ 487   2       }
+ 488   1      }
+C51 COMPILER V9.01   瞋距程序                                                              08/16/2016 17:27:34 PAGE 9   
+
+ 489          /*******************************************************************/
+ 490          /********************************************************/
+ 491          void main(void)
+ 492          {   
+ 493   1          TMOD=0x11; //设T1为方式1，GATE=1
+ 494   1              TH0=0xb6;
+ 495   1              TL0=0;
+ 496   1          TH1=(65536-50000)/256;
+ 497   1          TL1=(65536-50000)%256;
+ 498   1              EA=1; 
+ 499   1              ET1=1;
+ 500   1              TR0=1;
+ 501   1              TR1=1;
+ 502   1      
+ 503   1              Lcd_init();       //设置液晶显示器
+ 504   1              Clr_Scr();        //清屏        
+ 505   1              Disp_img(logo);   //显示欢迎使用本产品LOGO
+ 506   1              Delaynms(1000);
+ 507   1              Lcd_init();       //从图形显示状态下返回
+ 508   1          Lcd_Mark2();
+ 509   1       
+ 510   1      
+ 511   1              while(1)
+ 512   1              {
+ 513   2      
+ 514   2               StartModule();                                 //计算
+ 515   2               while(!RX);            //当RX为零时等待
+ 516   2               TR0=1;                     //开启计数
+ 517   2               while(RX);                     //当RX为1计数并等待
+ 518   2               TR0=0;                         //关闭计数
+ 519   2               Conut();
+ 520   2                      P2 =0x00;
+ 521   2                 if(S<=30||L1==1)
+ 522   2                 {
+ 523   3                 P2 =0x00;
+ 524   3             pe=1;
+ 525   3                 pl=1;
+ 526   3                 alarm =1;
+ 527   3                 }
+ 528   2               delayms(80);           //80MS
+ 529   2      /*       CLOCK[0]+=1;
+ 530   2                if(CLOCK[0]==60)
+ 531   2      { 
+ 532   2         CLOCK[0]=0;
+ 533   2         CLOCK[1]+=1;
+ 534   2         if(CLOCK[1]==60)
+ 535   2         {
+ 536   2          CLOCK[1]=0;
+ 537   2          CLOCK[2]+=1;
+ 538   2              if(CLOCK[2]==24)
+ 539   2                      {CLOCK[2]=0; 
+ 540   2       
+ 541   2                      }
+ 542   2         } 
+ 543   2      }*/      
+ 544   2              display();      
+ 545   2                       
+ 546   2              }
+ 547   1      
+ 548   1      }              
+
+
+C51 COMPILER V9.01   瞋距程序                                                              08/16/2016 17:27:34 PAGE 10  
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1290    ----
+   CONSTANT SIZE    =   1077    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     16      32
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      1       1
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
